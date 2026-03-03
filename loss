@@ -1,0 +1,30 @@
+P1, P2 = model(images)
+loss_P1 = oct_loss(P1, gts)
+loss_P2 = oct_loss(P2, gts)
+loss = loss_P1 + loss_P2
+def dice_loss(p, g, eps=1e-6):
+    p = torch.sigmoid(p); g=g.float()
+    inter = (p*g).sum((2,3)); union = p.sum((2,3))+g.sum((2,3))
+    return 1 - (2*inter+eps)/(union+eps)
+
+def boundary_iou_loss(p, g, dilation=2):
+    g = g.float()
+    ker = torch.ones(1,1,2*dilation+1,2*dilation+1,device=g.device)
+    g_d = F.conv2d(g, ker, padding=dilation)>0
+    p_d = F.conv2d((torch.sigmoid(p)>0.5).float(), ker, padding=dilation)>0
+    inter = (g_d & p_d).float().sum((2,3))
+    union = (g_d | p_d).float().sum((2,3))
+    return 1 - (inter+1)/(union+1)
+
+def focal_tversky(pred, g, alpha=.3, beta=.7, gamma=4/3, eps=1e-6):
+    p = torch.sigmoid(pred); g=g.float()
+    tp = (p*g).sum((2,3))
+    fp = ((1-g)*p).sum((2,3))
+    fn = (g*(1-p)).sum((2,3))
+    tversky = (tp+eps)/(tp + alpha*fp + beta*fn + eps)
+    return (1 - tversky)**gamma
+
+def oct_loss(pred, gt):
+    return (0.5*dice_loss(pred,gt) +
+            0.3*boundary_iou_loss(pred,gt) +
+            0.2*focal_tversky(pred,gt)).mean()
